@@ -1,0 +1,27 @@
+{
+    "url": "<insert your url here>",
+    "server": {
+        "host": "0.0.0.0",
+        "port": 8080
+    },
+    "database": {
+        "client": "mysql",
+        "connection": {
+            "host"     : "",
+            "port": 3306,
+            "user"     : "",
+            "password" : "",
+            "database" : "ghost"
+        }
+    },
+    "paths": {
+        "contentPath": "content/"
+    },
+    "logging": {
+        "level": "info",
+        "rotation": {
+            "enabled": true
+        },
+        "transports": ["file", "stdout"]
+    }
+}
