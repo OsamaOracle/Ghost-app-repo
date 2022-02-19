@@ -1,0 +1,98 @@
+name: 'Deploy Infrastructure'
+
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+
+jobs:
+  terraform:
+    name: 'Terraform'
+    runs-on: ubuntu-latest
+    environment: production
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: 'terraform'
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: Install node packages
+      run: npm install
+      working-directory: ./src
+
+    - name: Get timestamp
+      uses: gerred/actions/current-time@master
+      id: current-time
+
+    - name: Run string replace
+      uses: frabert/replace-string-action@master
+      id: format-time
+      with:
+        pattern: '[:\.]+'
+        string: "${{ steps.current-time.outputs.time }}"
+        replace-with: '-'
+        flags: 'g'
+
+    - name: Install zip
+      uses: montudor/action-zip@v1
+
+    - name: Zip output
+      run: zip -qq -r ../ghost-app.zip .
+      working-directory: ./src
+
+    - name: Upload file to bucket
+      uses: zdurham/s3-upload-github-action@master
+      env:
+        FILE: ./ghost-app.zip
+        AWS_REGION: 'us-east-1'
+        S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+        S3_KEY: ${{ secrets.AWS_S3_KEY }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v1
+      with:
+        cli_config_credentials_token: ${{ secrets.TERRAFORM_TOKEN }}
+
+    - name: Terraform Format
+      id: fmt
+      run: terraform fmt -check
+
+    - name: Terraform Init
+      id: init
+      run: terraform init
+    
+    - name: Terraform Validate
+      id: validate
+      run: terraform validate -no-color
+
+    - name: Terraform Plan
+      id: plan
+      if: github.event_name == 'pull_request'
+      run: terraform plan -no-color
+      continue-on-error: true
+
+    - name: Terraform Plan Status
+      if: steps.plan.outcome == 'failure'
+      run: exit 1
+
+    - name: Terraform Apply
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      run: terraform apply -auto-approve
+
+    - name: Beanstalk Deploy my app
+      uses: einaregilsson/beanstalk-deploy@v4
+      with:
+        aws_access_key: ${{secrets.AWS_ACCESS_KEY_ID}}
+        aws_secret_key: ${{secrets.AWS_SECRET_ACCESS_KEY}}
+        application_name: ghost-application
+        environment_name: ghost-beanstalk-environment
+        region: us-east-1
+        version_label: "ghost-app-${{ steps.format-time.outputs.replaced }}"
+        deployment_package: ghost-app.zip
